@@ -13,6 +13,22 @@ export const metadata: Metadata = {
     "Track your emotions, journal your thoughts, and gain insights into your emotional well-being with Scroll Souls.",
   generator: "v0.app",
   icons: {
+      icon: [
+      {
+        url: "/icon-light-32x32.png",
+        media: "(prefers-color-scheme: light)",
+      },
+      {
+        url: "/icon-dark-32x32.png",
+        media: "(prefers-color-scheme: dark)",
+      },
+      {
+        url: "/icon.svg",
+        type: "image/svg+xml",
+      },
+    ],
+    apple: "/apple-icon.png",
+  },
   
 }
 
