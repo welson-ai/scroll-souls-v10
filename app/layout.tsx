@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   title: "Scroll Souls - Your Emotional Wellness Companion",
   description:
     "Track your emotions, journal your thoughts, and gain insights into your emotional well-being with Scroll Souls.",
-  generator: "v0.app",
+ 
   icons: {
       icon: [
       {
