@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { createClient } from "@/lib/supabase/client"
+import { signUpWithNeon } from "@/app/actions/auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -21,26 +21,20 @@ export default function SignUpPage() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
-    const supabase = createClient()
     setIsLoading(true)
     setError(null)
 
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const result = await signUpWithNeon({
         email,
         password,
-        options: {
-          data: {
-            display_name: displayName,
-          },
-        },
+        displayName,
       })
-      if (error) throw error
 
-      if (data.session) {
+      if (result.success) {
         router.push("/home")
       } else {
-        router.push("/auth/check-email")
+        setError(result.error || "An error occurred during sign up")
       }
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred")
