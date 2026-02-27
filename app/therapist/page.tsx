@@ -1,4 +1,3 @@
-import { createClient } from "@/lib/supabase/server"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -9,35 +8,43 @@ import Link from "next/link"
 import TherapistRegistrationButton from "@/components/therapist-registration-button"
 import TherapistGrid from "@/components/therapist-grid"
 import TherapistApprovalList from "@/components/therapist-approval-list"
+import { getCurrentUser } from "@/lib/neon/auth"
+import { sql } from "@neondatabase/serverless"
 
 const ADMIN_EMAIL = "jahnetkiminza@gmail.com"
 
 export default async function TherapistHubPage() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
 
   if (!user) redirect("/auth/login")
 
-  const { data: profile } = await supabase.from("profiles").select("email").eq("id", user.id).maybeSingle()
+  const profileResult = await sql`
+    SELECT email FROM profiles WHERE id = ${user.id}
+  `
+  const profile = profileResult[0] || null
 
   const isAdmin = profile?.email === ADMIN_EMAIL || user.email === ADMIN_EMAIL
 
   // Check if user has a therapist application
-  const { data: therapistApp } = await supabase.from("therapists").select("*").eq("user_id", user.id).maybeSingle()
+  const therapistAppResult = await sql`
+    SELECT * FROM therapists WHERE user_id = ${user.id}
+  `
+  const therapistApp = therapistAppResult[0] || null
 
   // Fetch approved therapists
-  const { data: approvedTherapists } = await supabase
-    .from("therapists")
-    .select("*")
-    .eq("status", "approved")
-    .order("created_at", { ascending: false })
+  const approvedTherapists = await sql`
+    SELECT * FROM therapists
+    WHERE status = 'approved'
+    ORDER BY created_at DESC
+  `
 
-  const { data: pendingTherapists } = isAdmin
-    ? await supabase.from("therapists").select("*").eq("status", "pending").order("created_at", { ascending: false })
-    : { data: null }
+  const pendingTherapists = isAdmin
+    ? await sql`
+        SELECT * FROM therapists
+        WHERE status = 'pending'
+        ORDER BY created_at DESC
+      `
+    : null
 
   return (
     <div className="min-h-svh bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 pb-20">

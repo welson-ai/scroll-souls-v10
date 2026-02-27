@@ -1,4 +1,3 @@
-import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -7,61 +6,70 @@ import BottomNav from "@/components/bottom-nav"
 import AppHeader from "@/components/app-header"
 import CheckInButton from "@/components/check-in-button"
 import { redirect } from "next/navigation"
+import { getCurrentUser, getUserProfile } from "@/lib/neon/auth"
+import { sql } from "@neondatabase/serverless"
 
 export default async function HomePage() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
 
   if (!user) {
     redirect("/")
   }
 
   // Fetch profile
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle()
+  const profile = await getUserProfile(user.id)
 
   // Fetch today's check-in
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const { data: todayCheckIn } = await supabase
-    .from("check_ins")
-    .select("*, emotions(*)")
-    .eq("user_id", user.id)
-    .gte("created_at", today.toISOString())
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const todayCheckInResult = await sql`
+    SELECT ci.*, e.id as emotion_id, e.name, e.emoji, e.color_primary, e.color_secondary
+    FROM check_ins ci
+    LEFT JOIN emotions e ON ci.emotion_id = e.id
+    WHERE ci.user_id = ${user.id}
+      AND ci.created_at >= ${today.toISOString()}
+    ORDER BY ci.created_at DESC
+    LIMIT 1
+  `
+  const todayCheckIn = todayCheckInResult[0] || null
 
   // Fetch recent journal entries
-  const { data: recentEntries } = await supabase
-    .from("journal_entries")
-    .select("*, emotions(*)")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(3)
+  const recentEntries = await sql`
+    SELECT je.*, e.id as emotion_id, e.name, e.emoji, e.color_primary, e.color_secondary
+    FROM journal_entries je
+    LEFT JOIN emotions e ON je.emotion_id = e.id
+    WHERE je.user_id = ${user.id}
+    ORDER BY je.created_at DESC
+    LIMIT 3
+  `
 
   // Fetch recent badges
-  const { data: recentBadges } = await supabase
-    .from("user_badges")
-    .select("*, badges(*)")
-    .eq("user_id", user.id)
-    .order("earned_at", { ascending: false })
-    .limit(2)
+  const recentBadges = await sql`
+    SELECT ub.*, b.name, b.description, b.icon, b.requirement_value
+    FROM user_badges ub
+    LEFT JOIN badges b ON ub.badge_id = b.id
+    WHERE ub.user_id = ${user.id}
+    ORDER BY ub.earned_at DESC
+    LIMIT 2
+  `
 
-  const { data: emotions } = await supabase.from("emotions").select("*").order("id")
+  // Fetch all emotions
+  const emotions = await sql`
+    SELECT id, name, emoji, color_primary, color_secondary
+    FROM emotions
+    ORDER BY id
+  `
 
   // Stats
-  const { count: totalCheckIns } = await supabase
-    .from("check_ins")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id)
+  const totalCheckInsResult = await sql`
+    SELECT COUNT(*) as count FROM check_ins WHERE user_id = ${user.id}
+  `
+  const totalCheckIns = totalCheckInsResult[0]?.count || 0
 
-  const { count: totalEntries } = await supabase
-    .from("journal_entries")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id)
+  const totalEntriesResult = await sql`
+    SELECT COUNT(*) as count FROM journal_entries WHERE user_id = ${user.id}
+  `
+  const totalEntries = totalEntriesResult[0]?.count || 0
 
   return (
     <div className="min-h-svh bg-gradient-to-br from-blue-50 to-purple-50 pb-20">
@@ -117,13 +125,13 @@ export default async function HomePage() {
           <Card>
             <CardHeader className="pb-2 sm:pb-3">
               <CardDescription className="text-xs sm:text-sm">Total Check-ins</CardDescription>
-              <CardTitle className="text-xl sm:text-2xl">{totalCheckIns || 0}</CardTitle>
+              <CardTitle className="text-xl sm:text-2xl">{Number(totalCheckIns) || 0}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2 sm:pb-3">
               <CardDescription className="text-xs sm:text-sm">Journal Entries</CardDescription>
-              <CardTitle className="text-xl sm:text-2xl">{totalEntries || 0}</CardTitle>
+              <CardTitle className="text-xl sm:text-2xl">{Number(totalEntries) || 0}</CardTitle>
             </CardHeader>
           </Card>
           <Card>

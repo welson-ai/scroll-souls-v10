@@ -1,5 +1,3 @@
-import { createClient } from "@/lib/supabase/server"
-import { createServiceClient } from "@/lib/supabase/service"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, Building2 } from "lucide-react"
@@ -8,23 +6,22 @@ import BottomNav from "@/components/bottom-nav"
 import Link from "next/link"
 import CreateOrganizationButton from "@/components/create-organization-button"
 import OrganizationCard from "@/components/organization-card"
+import { getCurrentUser } from "@/lib/neon/auth"
+import { sql } from "@neondatabase/serverless"
 
 export default async function OrganizationsPage() {
-  const supabase = await createClient()
-  const serviceClient = createServiceClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
 
   if (!user) redirect("/auth/login")
 
-  const { data: memberOrgs } = await serviceClient
-    .from("organization_members")
-    .select("org_id, organizations(id, name, description, owner_id, created_at)")
-    .eq("user_id", user.id)
+  const memberOrgs = await sql`
+    SELECT om.org_id, o.id, o.name, o.description, o.owner_id, o.created_at
+    FROM organization_members om
+    LEFT JOIN organizations o ON om.org_id = o.id
+    WHERE om.user_id = ${user.id}
+  `
 
-  const organizations = memberOrgs?.map((m: any) => m.organizations).filter(Boolean) || []
+  const organizations = memberOrgs?.filter((m: any) => m.id) || []
 
   return (
     <div className="min-h-svh bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 pb-20">
@@ -60,7 +57,17 @@ export default async function OrganizationsPage() {
           <div className="space-y-3 sm:space-y-4">
             <h3 className="text-sm font-semibold sm:text-base">Your Organizations ({organizations.length})</h3>
             {organizations.map((org: any) => (
-              <OrganizationCard key={org.id} organization={org} currentUserId={user.id} />
+              <OrganizationCard
+                key={org.id}
+                organization={{
+                  id: org.id,
+                  name: org.name,
+                  description: org.description,
+                  owner_id: org.owner_id,
+                  created_at: org.created_at,
+                }}
+                currentUserId={user.id}
+              />
             ))}
           </div>
         ) : (

@@ -1,23 +1,24 @@
 import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
+import { getCurrentUser, getUserProfile } from "@/lib/neon/auth"
+import { sql } from "@neondatabase/serverless"
 import EmotionCheckIn from "@/components/emotion-check-in"
 import BottomNav from "@/components/bottom-nav"
 
 export default async function CheckInPage() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
   if (!user) {
     redirect("/auth/login")
   }
 
   // Fetch emotions from database
-  const { data: emotions } = await supabase.from("emotions").select("*").order("id")
+  const emotions = await sql`
+    SELECT id, name, emoji, color_primary, color_secondary
+    FROM emotions
+    ORDER BY id
+  `
 
   // Fetch user profile
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single()
+  const profile = await getUserProfile(user.id)
 
   return (
     <>

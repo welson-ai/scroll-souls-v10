@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -7,35 +6,25 @@ import Link from "next/link"
 import { formatDistanceToNow } from "date-fns"
 import BottomNav from "@/components/bottom-nav"
 import { ArrowLeft } from "lucide-react"
+import { getCurrentUser, getUserProfile } from "@/lib/neon/auth"
+import { sql } from "@neondatabase/serverless"
 
 export default async function JournalPage() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
   if (!user) {
     redirect("/auth/login")
   }
 
   // Fetch journal entries with emotion data
-  const { data: entries } = await supabase
-    .from("journal_entries")
-    .select(
-      `
-      *,
-      emotions (
-        id,
-        name,
-        emoji,
-        color_primary
-      )
-    `,
-    )
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
+  const entries = await sql`
+    SELECT je.*, e.id as emotion_id, e.name, e.emoji, e.color_primary
+    FROM journal_entries je
+    LEFT JOIN emotions e ON je.emotion_id = e.id
+    WHERE je.user_id = ${user.id}
+    ORDER BY je.created_at DESC
+  `
 
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single()
+  const profile = await getUserProfile(user.id)
 
   return (
     <div className="min-h-svh bg-gradient-to-br from-blue-50 to-purple-50 pb-20">
@@ -76,15 +65,15 @@ export default async function JournalPage() {
               <Link key={entry.id} href={`/journal/${entry.id}`}>
                 <Card className="cursor-pointer p-6 transition-all hover:shadow-lg">
                   <div className="flex items-start gap-4">
-                    <div className="text-3xl">{entry.emotions?.emoji}</div>
+                    <div className="text-3xl">{entry.emoji}</div>
                     <div className="flex-1">
                       <div className="mb-2 flex items-center gap-2">
                         {entry.title && <h3 className="text-lg font-semibold line-clamp-1">{entry.title}</h3>}
                         <Badge
                           variant="secondary"
-                          style={{ backgroundColor: entry.emotions?.color_primary + "20", borderColor: "transparent" }}
+                          style={{ backgroundColor: entry.color_primary + "20", borderColor: "transparent" }}
                         >
-                          {entry.emotions?.name}
+                          {entry.name}
                         </Badge>
                         {entry.is_favorite && <span className="text-yellow-500">⭐</span>}
                       </div>

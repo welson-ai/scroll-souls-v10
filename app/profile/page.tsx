@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -8,29 +7,33 @@ import { Progress } from "@/components/ui/progress"
 import { ArrowLeft } from "lucide-react"
 import SignOutButton from "@/components/sign-out-button"
 import BottomNav from "@/components/bottom-nav"
+import { getCurrentUser, getUserProfile } from "@/lib/neon/auth"
+import { sql } from "@neondatabase/serverless"
 
 export default async function ProfilePage() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
   if (!user) {
     redirect("/auth/login")
   }
 
   // Fetch profile
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single()
+  const profile = await getUserProfile(user.id)
 
   // Fetch all badges
-  const { data: allBadges } = await supabase.from("badges").select("*").order("requirement_value")
+  const allBadges = await sql`
+    SELECT id, name, description, icon, requirement_value
+    FROM badges
+    ORDER BY requirement_value
+  `
 
   // Fetch user's earned badges
-  const { data: earnedBadges } = await supabase
-    .from("user_badges")
-    .select("*, badges(*)")
-    .eq("user_id", user.id)
-    .order("earned_at", { ascending: false })
+  const earnedBadges = await sql`
+    SELECT ub.*, b.id as badge_id, b.name, b.description, b.icon, b.requirement_value
+    FROM user_badges ub
+    LEFT JOIN badges b ON ub.badge_id = b.id
+    WHERE ub.user_id = ${user.id}
+    ORDER BY ub.earned_at DESC
+  `
 
   const earnedBadgeIds = new Set(earnedBadges?.map((b: any) => b.badge_id))
 
@@ -44,15 +47,15 @@ export default async function ProfilePage() {
   const progressPercentage = (xpInCurrentLevel / xpNeededForNextLevel) * 100
 
   // Stats
-  const { count: totalCheckIns } = await supabase
-    .from("check_ins")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id)
+  const totalCheckInsResult = await sql`
+    SELECT COUNT(*) as count FROM check_ins WHERE user_id = ${user.id}
+  `
+  const totalCheckIns = totalCheckInsResult[0]?.count || 0
 
-  const { count: totalEntries } = await supabase
-    .from("journal_entries")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id)
+  const totalEntriesResult = await sql`
+    SELECT COUNT(*) as count FROM journal_entries WHERE user_id = ${user.id}
+  `
+  const totalEntries = totalEntriesResult[0]?.count || 0
 
   return (
     <div className="min-h-svh bg-gradient-to-br from-blue-50 to-purple-50 pb-20">
@@ -125,13 +128,13 @@ export default async function ProfilePage() {
             <Card>
               <CardHeader className="pb-3">
                 <CardDescription>Total Check-ins</CardDescription>
-                <CardTitle className="text-3xl">{totalCheckIns || 0}</CardTitle>
+                <CardTitle className="text-3xl">{Number(totalCheckIns) || 0}</CardTitle>
               </CardHeader>
             </Card>
             <Card>
               <CardHeader className="pb-3">
                 <CardDescription>Journal Entries</CardDescription>
-                <CardTitle className="text-3xl">{totalEntries || 0}</CardTitle>
+                <CardTitle className="text-3xl">{Number(totalEntries) || 0}</CardTitle>
               </CardHeader>
             </Card>
             <Card>

@@ -1,4 +1,3 @@
-import { createClient } from "@/lib/supabase/server"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
@@ -7,62 +6,56 @@ import BottomNav from "@/components/bottom-nav"
 import Link from "next/link"
 import MoodPostCard from "@/components/mood-post-card"
 import CreateMoodPostButton from "@/components/create-mood-post-button"
+import { getCurrentUser } from "@/lib/neon/auth"
+import { sql } from "@neondatabase/serverless"
 
 export default async function MoodWallPage() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
 
   if (!user) redirect("/auth/login")
 
-  const { data: posts } = await supabase
-    .from("mood_posts")
-    .select(
-      `
-      id,
-      content,
-      intensity,
-      reaction_count,
-      created_at,
-      emotion_id,
-      user_id,
-      emotions(id, name, emoji, color_primary)
-    `,
-    )
-    .order("created_at", { ascending: false })
-    .limit(50)
+  const posts = await sql`
+    SELECT mp.id, mp.content, mp.intensity, mp.reaction_count, mp.created_at, 
+           mp.emotion_id, mp.user_id, e.id as emotion_id, e.name, e.emoji, e.color_primary
+    FROM mood_posts mp
+    LEFT JOIN emotions e ON mp.emotion_id = e.id
+    ORDER BY mp.created_at DESC
+    LIMIT 50
+  `
 
   console.log("[v0] Fetched mood posts:", posts?.length || 0)
 
-  const { data: userReactions } = await supabase
-    .from("post_reactions")
-    .select("post_id, reaction_type")
-    .eq("user_id", user.id)
+  const userReactions = await sql`
+    SELECT post_id, reaction_type
+    FROM post_reactions
+    WHERE user_id = ${user.id}
+  `
 
   // Group reactions by post_id
   const userReactionMap = new Map<string, string[]>()
-  userReactions?.forEach((r) => {
+  userReactions?.forEach((r: any) => {
     const reactions = userReactionMap.get(r.post_id) || []
     reactions.push(r.reaction_type)
     userReactionMap.set(r.post_id, reactions)
   })
 
-  const { data: allComments } = await supabase
-    .from("post_comments")
-    .select("*")
-    .order("created_at", { ascending: true })
+  const allComments = await sql`
+    SELECT * FROM post_comments
+    ORDER BY created_at ASC
+  `
 
   // Group comments by post_id
   const commentsMap = new Map<string, any[]>()
-  allComments?.forEach((comment) => {
+  allComments?.forEach((comment: any) => {
     const comments = commentsMap.get(comment.post_id) || []
     comments.push(comment)
     commentsMap.set(comment.post_id, comments)
   })
 
-  const { data: emotions } = await supabase.from("emotions").select("*")
+  const emotions = await sql`
+    SELECT id, name, emoji, color_primary, color_secondary
+    FROM emotions
+  `
 
   return (
     <div className="min-h-svh bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 pb-20">
@@ -87,7 +80,21 @@ export default async function MoodWallPage() {
             {posts.map((post: any) => (
               <MoodPostCard
                 key={post.id}
-                post={post}
+                post={{
+                  id: post.id,
+                  content: post.content,
+                  intensity: post.intensity,
+                  reaction_count: post.reaction_count,
+                  created_at: post.created_at,
+                  emotion_id: post.emotion_id,
+                  user_id: post.user_id,
+                  emotions: {
+                    id: post.emotion_id,
+                    name: post.name,
+                    emoji: post.emoji,
+                    color_primary: post.color_primary,
+                  },
+                }}
                 userReactions={userReactionMap.get(post.id) || []}
                 userId={user.id}
                 comments={commentsMap.get(post.id) || []}
