@@ -16,17 +16,17 @@ const publicRoutes = ["/", "/auth/login", "/auth/sign-up", "/auth/check-email"]
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const authToken = request.cookies.get("auth_token")?.value
+  const authSession = request.cookies.get("auth_session")?.value
 
   // If trying to access a protected route without auth
   if (protectedRoutes.some((route) => pathname.startsWith(route))) {
-    if (!authToken) {
+    if (!authSession) {
       return NextResponse.redirect(new URL("/auth/login", request.url))
     }
   }
 
   // If logged in user tries to access auth pages, redirect to home
-  if (publicRoutes.some((route) => pathname === route) && authToken && pathname !== "/") {
+  if (publicRoutes.some((route) => pathname === route) && authSession && pathname !== "/") {
     return NextResponse.redirect(new URL("/home", request.url))
   }
 

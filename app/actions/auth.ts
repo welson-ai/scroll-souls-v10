@@ -1,12 +1,20 @@
 'use server'
 
 import { neon } from '@neondatabase/serverless'
-import bcrypt from 'bcryptjs'
+import * as bcryptjs from 'bcryptjs'
 import { cookies } from 'next/headers'
 
 const sql = neon(process.env.DATABASE_URL!)
 
-export async function signUp(email: string, password: string, displayName: string) {
+export async function signUpWithNeon({
+  email,
+  password,
+  displayName,
+}: {
+  email: string
+  password: string
+  displayName: string
+}) {
   try {
     // Check if user already exists
     const existingUser = await sql`
@@ -14,20 +22,22 @@ export async function signUp(email: string, password: string, displayName: strin
     `
 
     if (existingUser.length > 0) {
-      return { error: 'Email already registered' }
+      return { success: false, error: 'Email already registered' }
     }
 
     // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10)
+    const salt = await bcryptjs.genSalt(10)
+    const hashedPassword = await bcryptjs.hash(password, salt)
 
     // Create user profile
-    const userId = Math.random().toString(36).substring(2, 15)
+    const userId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
     const result = await sql`
       INSERT INTO profiles (
         id,
         email,
         display_name,
         password_hash,
+        email_verified,
         created_at,
         updated_at
       ) VALUES (
@@ -35,6 +45,7 @@ export async function signUp(email: string, password: string, displayName: strin
         ${email},
         ${displayName},
         ${hashedPassword},
+        false,
         NOW(),
         NOW()
       )
@@ -42,26 +53,27 @@ export async function signUp(email: string, password: string, displayName: strin
     `
 
     if (result.length === 0) {
-      return { error: 'Failed to create account' }
+      return { success: false, error: 'Failed to create account' }
     }
 
     // Set session cookie
     const cookieStore = await cookies()
-    cookieStore.set('user_id', userId, {
+    cookieStore.set('auth_session', userId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 30, // 30 days
+      path: '/',
     })
 
     return { success: true, user: result[0] }
   } catch (error) {
     console.error('[v0] Sign up error:', error)
-    return { error: error instanceof Error ? error.message : 'An error occurred' }
+    return { success: false, error: error instanceof Error ? error.message : 'An error occurred' }
   }
 }
 
-export async function signIn(email: string, password: string) {
+export async function loginWithNeon(email: string, password: string) {
   try {
     // Get user
     const users = await sql`
@@ -69,66 +81,41 @@ export async function signIn(email: string, password: string) {
     `
 
     if (users.length === 0) {
-      return { error: 'Invalid email or password' }
+      return { success: false, error: 'Invalid email or password' }
     }
 
     const user = users[0]
 
     // Verify password
-    const isValid = await bcrypt.compare(password, user.password_hash)
+    const isValid = await bcryptjs.compare(password, user.password_hash)
     if (!isValid) {
-      return { error: 'Invalid email or password' }
+      return { success: false, error: 'Invalid email or password' }
     }
 
     // Set session cookie
     const cookieStore = await cookies()
-    cookieStore.set('user_id', user.id, {
+    cookieStore.set('auth_session', user.id, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 30,
+      path: '/',
     })
 
     return { success: true, user: { id: user.id, email, display_name: user.display_name } }
   } catch (error) {
-    console.error('[v0] Sign in error:', error)
-    return { error: error instanceof Error ? error.message : 'An error occurred' }
+    console.error('[v0] Login error:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'An error occurred' }
   }
 }
 
-export async function signOut() {
+export async function logoutUser() {
   try {
     const cookieStore = await cookies()
-    cookieStore.delete('user_id')
+    cookieStore.delete('auth_session')
     return { success: true }
   } catch (error) {
-    console.error('[v0] Sign out error:', error)
-    return { error: error instanceof Error ? error.message : 'An error occurred' }
-  }
-}
-
-export async function getCurrentUser() {
-  try {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('user_id')?.value
-
-    if (!userId) {
-      return { user: null }
-    }
-
-    const users = await sql`
-      SELECT id, email, display_name, avatar_url, total_xp, current_level, streak_days
-      FROM profiles
-      WHERE id = ${userId}
-    `
-
-    if (users.length === 0) {
-      return { user: null }
-    }
-
-    return { user: users[0] }
-  } catch (error) {
-    console.error('[v0] Get current user error:', error)
-    return { user: null }
+    console.error('[v0] Logout error:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'An error occurred' }
   }
 }

@@ -1,31 +1,45 @@
-import { sql } from "@neondatabase/serverless"
+import { neon } from "@neondatabase/serverless"
 import { cookies } from "next/headers"
-import { jwtVerify } from "jose"
 
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || "your-secret-key-change-in-production")
+const sql = neon(process.env.DATABASE_URL!)
 
 export interface UserSession {
   id: string
   email: string
   display_name: string
+  avatar_url?: string
+  total_xp?: number
+  current_level?: number
+  streak_days?: number
 }
 
 /**
- * Verify JWT token from cookies and return user session
+ * Get current user from session cookie
  */
 export async function getCurrentUser(): Promise<UserSession | null> {
   try {
     const cookieStore = await cookies()
-    const token = cookieStore.get("auth_token")?.value
+    const userId = cookieStore.get("auth_session")?.value
 
-    if (!token) {
+    if (!userId) {
+      console.log("[v0] No auth session found")
       return null
     }
 
-    const verified = await jwtVerify(token, JWT_SECRET)
-    return verified.payload as UserSession
+    const result = await sql`
+      SELECT id, email, display_name, avatar_url, total_xp, current_level, streak_days
+      FROM profiles
+      WHERE id = ${userId}
+    `
+
+    if (result.length === 0) {
+      console.log("[v0] User not found in database")
+      return null
+    }
+
+    return result[0] as UserSession
   } catch (error) {
-    console.error("[v0] Error verifying token:", error)
+    console.error("[v0] Error getting current user:", error)
     return null
   }
 }
@@ -36,7 +50,7 @@ export async function getCurrentUser(): Promise<UserSession | null> {
 export async function getUserProfile(userId: string) {
   try {
     const result = await sql`
-      SELECT id, email, display_name, current_level, total_xp, streak_days
+      SELECT id, email, display_name, current_level, total_xp, streak_days, avatar_url, created_at
       FROM profiles
       WHERE id = ${userId}
     `
@@ -45,28 +59,4 @@ export async function getUserProfile(userId: string) {
     console.error("[v0] Error fetching user profile:", error)
     return null
   }
-}
-
-/**
- * Create JWT token
- */
-export function createToken(user: UserSession): string {
-  const payload = {
-    id: user.id,
-    email: user.email,
-    display_name: user.display_name,
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7, // 7 days
-  }
-
-  // Note: This is a simplified version. In production, use a proper JWT library
-  return Buffer.from(JSON.stringify(payload)).toString("base64")
-}
-
-/**
- * Logout user by clearing session cookie
- */
-export async function logoutUser() {
-  const cookieStore = await cookies()
-  cookieStore.delete("auth_token")
 }
