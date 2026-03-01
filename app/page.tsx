@@ -1,10 +1,11 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { createClient } from "@/lib/supabase/server"
 import { Sparkles, TrendingUp, Users, Heart, Zap } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import CheckInButton from "@/components/check-in-button"
 import EmotionPieChartSimple from "@/components/emotion-pie-chart-simple"
+import { getCurrentUser } from "@/lib/neon/auth"
+import { sql } from "@neondatabase/serverless"
 
 const EMOTION_COLORS = {
   Joy: "#fde047",
@@ -18,42 +19,43 @@ const EMOTION_COLORS = {
 }
 
 export default async function LandingPage() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
 
   let recentCheckIns: any[] = []
   let emotions: any[] | null = null
 
   try {
     // Fetch recent public check-ins (limited sample for stats display)
-    const { data, error } = await supabase
-      .from("check_ins")
-      .select("*, emotions(id, name, emoji, color_primary)")
-      .order("created_at", { ascending: false })
-      .limit(100)
-
-    if (!error && data) {
-      recentCheckIns = data
-    }
+    const data = await sql`
+      SELECT ci.id, ci.created_at, ci.emotion_id, e.id as emotion_id, e.name, e.emoji, e.color_primary
+      FROM check_ins ci
+      LEFT JOIN emotions e ON ci.emotion_id = e.id
+      ORDER BY ci.created_at DESC
+      LIMIT 100
+    `
+    recentCheckIns = data || []
   } catch (error) {
     // Silently fail - landing page should work even without stats
+    console.log("[v0] Failed to fetch check-ins:", error)
   }
 
   try {
-    const { data } = await supabase.from("emotions").select("*").order("name")
-    emotions = data
+    const data = await sql`
+      SELECT id, name, emoji, color_primary, color_secondary
+      FROM emotions
+      ORDER BY name
+    `
+    emotions = data || null
   } catch (error) {
     // Silently fail
+    console.log("[v0] Failed to fetch emotions:", error)
   }
 
   // Calculate stats from available data
   const emotionCounts: Record<string, { name: string; count: number; color: string }> = {}
 
   recentCheckIns?.forEach((checkIn: any) => {
-    const emotionName = checkIn.emotions?.name
+    const emotionName = checkIn.name
     if (emotionName) {
       if (!emotionCounts[emotionName]) {
         emotionCounts[emotionName] = {
@@ -74,8 +76,6 @@ export default async function LandingPage() {
 
   const topEmotion =
     chartData.length > 0 ? chartData.reduce((prev, current) => (prev.value > current.value ? prev : current)) : null
-
-  const serializedEmotions = emotions ? JSON.parse(JSON.stringify(emotions)) : null
 
   return (
     <div className="min-h-svh bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50">
@@ -119,7 +119,7 @@ export default async function LandingPage() {
                 >
                   <Link href="/home">Go to Dashboard</Link>
                 </Button>
-                {serializedEmotions && <CheckInButton emotions={serializedEmotions} userId={user.id} />}
+                {emotions && <CheckInButton emotions={emotions} userId={user.id} />}
               </>
             ) : (
               <>
@@ -138,7 +138,7 @@ export default async function LandingPage() {
                 >
                   <Link href="/auth/login">Log In</Link>
                 </Button>
-                {serializedEmotions && <CheckInButton emotions={serializedEmotions} />}
+                {emotions && <CheckInButton emotions={emotions} />}
               </>
             )}
           </div>
